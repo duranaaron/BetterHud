@@ -13,6 +13,7 @@ import kr.toxicity.hud.api.popup.PopupUpdater
 import kr.toxicity.hud.manager.*
 import kr.toxicity.hud.util.*
 import net.kyori.adventure.bossbar.BossBar
+import net.kyori.adventure.text.Component
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.collections.forEach
 
@@ -23,6 +24,8 @@ abstract class HudPlayerImpl : HudPlayer {
     private var tick = 0L
     private var last: WidthComponent = EMPTY_WIDTH_COMPONENT
     private var additionalComp: WidthComponent? = null
+    private var lastBuilt: Component? = null
+    private var lastCompacted: Component? = null
     private val variable = ConcurrentHashMap<String, String>()
     private val popupGroup = ConcurrentHashMap<String, PopupIteratorGroup>()
     private val popupKey = ConcurrentHashMap<Any, PopupUpdater>()
@@ -136,7 +139,13 @@ abstract class HudPlayerImpl : HudPlayer {
             }
             last = comp.finalizeFont()
 
-            VOLATILE_CODE.showBossBar(this, color ?: ShaderManagerImpl.barColor, comp.component.build().compact())
+            // compact() is costly and the hud is usually the same as last tick, so reuse that result
+            val built = comp.component.build()
+            val compacted = if (built == lastBuilt) lastCompacted!! else built.compact().also {
+                lastBuilt = built
+                lastCompacted = it
+            }
+            VOLATILE_CODE.showBossBar(this, color ?: ShaderManagerImpl.barColor, compacted)
         } else VOLATILE_CODE.showBossBar(this, color ?: ShaderManagerImpl.barColor, EMPTY_COMPONENT)
     }
 
