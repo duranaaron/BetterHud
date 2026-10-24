@@ -6,6 +6,7 @@ import io.netty.buffer.Unpooled
 import io.netty.channel.ChannelDuplexHandler
 import io.netty.channel.ChannelHandlerContext
 import io.netty.channel.ChannelPromise
+import io.papermc.paper.adventure.PaperAdventure
 import io.papermc.paper.datacomponent.DataComponentType
 import io.papermc.paper.event.server.ServerResourcesReloadedEvent
 import kr.toxicity.command.BetterCommandSource
@@ -83,7 +84,9 @@ class NMSImpl : NMS {
         fun createBossBar(byteBuf: RegistryFriendlyByteBuf): ClientboundBossEventPacket = ClientboundBossEventPacket.STREAM_CODEC.decode(byteBuf)
 
         private fun toAdventure(component: net.minecraft.network.chat.Component) = GsonComponentSerializer.gson().deserialize(CraftChatMessage.toJSON(component))
-        private fun fromAdventure(component: Component) = CraftChatMessage.fromJSON(GsonComponentSerializer.gson().serialize(component))
+        private val isPaper by lazy { BetterHudAPI.inst().bootstrap().isPaper }
+        // Paper converts directly, the json round trip is only needed on Spigot
+        private fun fromAdventure(component: Component) = if (isPaper) PaperAdventure.asVanilla(component) else CraftChatMessage.fromJSON(GsonComponentSerializer.gson().serialize(component))
         private fun getColor(color: BossBar.Color) =  when (color) {
             BossBar.Color.PINK -> BossEvent.BossBarColor.PINK
             BossBar.Color.BLUE -> BossEvent.BossBarColor.BLUE
@@ -277,7 +280,16 @@ class NMSImpl : NMS {
             }
         }
 
+        @Volatile
+        private var lastColor: BossBar.Color? = null
+        @Volatile
+        private var lastComponent: Component? = null
+
         fun update(color: BossBar.Color, component: Component) {
+            // the hud is rebuilt every tick, only send it when it actually changed
+            if (color == lastColor && component == lastComponent) return
+            lastColor = color
+            lastComponent = component
             val bossBar = HudBossBar(uuid, component, color)
             last = bossBar
             listener.send(ClientboundBossEventPacket.createUpdateNamePacket(bossBar))
