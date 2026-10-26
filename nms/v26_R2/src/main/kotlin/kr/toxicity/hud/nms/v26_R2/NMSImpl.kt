@@ -85,8 +85,8 @@ class NMSImpl : NMS {
 
         private fun toAdventure(component: net.minecraft.network.chat.Component) = GsonComponentSerializer.gson().deserialize(CraftChatMessage.toJSON(component))
         private val isPaper by lazy { BetterHudAPI.inst().bootstrap().isPaper }
-        // Paper converts directly, the json round trip is only needed on Spigot
-        private fun fromAdventure(component: Component) = if (isPaper) PaperAdventure.asVanilla(component) else CraftChatMessage.fromJSON(GsonComponentSerializer.gson().serialize(component))
+        // convert eagerly on the hud thread: PaperAdventure.asVanilla only wraps, the netty thread then converts per packet
+        private fun fromAdventure(component: Component) = if (isPaper) PaperAdventure.WRAPPER_AWARE_SERIALIZER.serialize(component) else CraftChatMessage.fromJSON(GsonComponentSerializer.gson().serialize(component))
         private fun getColor(color: BossBar.Color) =  when (color) {
             BossBar.Color.PINK -> BossEvent.BossBarColor.PINK
             BossBar.Color.BLUE -> BossEvent.BossBarColor.BLUE
