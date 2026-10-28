@@ -22,6 +22,7 @@ abstract class HudPlayerImpl : HudPlayer {
     private val componentMap = ConcurrentHashMap<HudObject.Identifier, HudComponentSupplier<*>>()
 
     private var tick = 0L
+    private var idleUpdates = 0L
     private var last: WidthComponent = EMPTY_WIDTH_COMPONENT
     private var additionalComp: WidthComponent? = null
     private var lastBuilt: Component? = null
@@ -102,6 +103,9 @@ abstract class HudPlayerImpl : HudPlayer {
 
     @Synchronized
     final override fun update() {
+        // popups count their frames and duration in updates and need every one; without a popup
+        // the hud only changes when its placeholders do, so it may rebuild less often
+        if (popupGroup.isEmpty() && ++idleUpdates % ConfigManagerImpl.idleTickSpeed != 0L) return
         updatePlaceholder()
         tick++
         val compList = ArrayList<WidthComponent>()

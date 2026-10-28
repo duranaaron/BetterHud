@@ -45,6 +45,8 @@ object ConfigManagerImpl : BetterHudManager, ConfigManager {
         private set
     var tickSpeed = 1L
         private set
+    var idleTickSpeed = 1L
+        private set
     var disableToBedrockPlayer = true
         private set
     var buildFolderLocation = "BetterHud/build".replace('/', File.separatorChar)
@@ -150,6 +152,7 @@ object ConfigManagerImpl : BetterHudManager, ConfigManager {
                 }
             }
             tickSpeed = yaml.getAsLong("tick-speed", 1)
+            idleTickSpeed = yaml.getAsLong("idle-tick-speed", 1).coerceAtLeast(1)
             numberFormat = yaml["number-format"]?.asString()?.let {
                 runCatching {
                     DecimalFormat(it)
