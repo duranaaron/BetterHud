@@ -286,9 +286,15 @@ class NMSImpl : NMS {
         @Volatile
         private var lastComponent: Component? = null
 
+        private val channel = getConnection(listener).channel
+
         fun update(color: BossBar.Color, component: Component) {
             // the hud is rebuilt every tick, only send it when it actually changed
             if (color == lastColor && component == lastComponent) return
+            // a client that is not draining gets no more frames queued on its event loop: each one
+            // would be encoded there and held until the timeout. lastComponent stays unchanged, so
+            // the latest frame goes out on the first update after the channel is writable again
+            if (!channel.isWritable) return
             lastColor = color
             lastComponent = component
             val bossBar = HudBossBar(uuid, component, color)
