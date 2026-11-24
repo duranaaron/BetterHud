@@ -36,7 +36,8 @@ object TextManagerImpl : BetterHudManager, TextManager {
     private data class TextCache(
         val name: String,
         val imagesName: Set<String>,
-        val supportLanguage: Set<String>?
+        val supportLanguage: Set<String>?,
+        val filterDefaultBitmap: Boolean = false
     )
 
     private const val CHAR_LENGTH = 16
@@ -159,6 +160,23 @@ object TextManagerImpl : BetterHudManager, TextManager {
         }
     )
 
+    private val codepointRangePattern = Regex("^[Uu]\\+([0-9A-Fa-f]{1,6})(?:\\s*-\\s*[Uu]\\+([0-9A-Fa-f]{1,6}))?$")
+
+    /**
+     * The codepoints of one `include` entry: a language name, a single codepoint (`U+20AC`)
+     * or an inclusive range (`U+2190-U+21FF`).
+     */
+    private fun includeCodepoints(entry: String): Collection<Int> {
+        languageCodepointRange[entry]?.let { return it }
+        val match = codepointRangePattern.matchEntire(entry.trim()) ?: run {
+            warn("Unknown include entry in a text: $entry (use a language name, U+XXXX or U+XXXX-U+YYYY)")
+            return emptyList()
+        }
+        val from = match.groupValues[1].toInt(16)
+        val to = match.groupValues[2].ifEmpty { match.groupValues[1] }.toInt(16)
+        return if (from <= to) (from..to).toList() else emptyList()
+    }
+
     private val FRC = FontRenderContext(null, true, true)
 
     @Synchronized
@@ -260,7 +278,7 @@ object TextManagerImpl : BetterHudManager, TextManager {
         )
         val parseDefault = parseTTFFont("", "default_$configScale", configScale, defaultProvider, resource.textures, emptyMap(), fontConfig.get("include")?.asArray()?.map {
             it.asString()
-        }?.toSet(), fontConfig.getAsBoolean("merge-default-bitmap", true), fontConfig)()
+        }?.toSet(), fontConfig.getAsBoolean("merge-default-bitmap", true), fontConfig.getAsBoolean("filter-default-bitmap", false), fontConfig)()
         parseDefault.charWidth.forEach {
             textWidthMap[it.key] = (it.value * configDiv).normalizedWidth
         }
@@ -321,6 +339,7 @@ object TextManagerImpl : BetterHudManager, TextManager {
                                 it.asString()
                             }?.toSet(),
                             section.getAsBoolean("merge-default-bitmap", false),
+                            section.getAsBoolean("filter-default-bitmap", false),
                             section,
                         )
                     }
@@ -567,10 +586,11 @@ object TextManagerImpl : BetterHudManager, TextManager {
         images: Map<String, LocatedImage>,
         supportedLanguage: Set<String>?,
         mergeDefaultBitmap: Boolean,
+        filterDefaultBitmap: Boolean,
         yamlObject: YamlObject
     ): TextSupplier {
         return synchronized(textCacheMap) {
-            textCacheMap[TextCache(saveName, images.keys, supportedLanguage)]?.let { old ->
+            textCacheMap[TextCache(saveName, images.keys, supportedLanguage, filterDefaultBitmap)]?.let { old ->
                 TextSupplier {
                     TextElement(internalName, scale, old.array, old.charWidth, old.imageTextScale, yamlObject)
                 }
@@ -602,22 +622,26 @@ object TextManagerImpl : BetterHudManager, TextManager {
                         }
                     }
                 }
+                // null when there is no include list: every codepoint is allowed.
+                val supportedCodepoint = supportedLanguage?.let { lang ->
+                    IntOpenHashSet(defaultLatin).apply {
+                        lang.forEach { addAll(includeCodepoints(it)) }
+                    }
+                }
+                // Every text element gets its own copy of every merged glyph, so with
+                // filter-default-bitmap the include list also limits the vanilla bitmap.
                 if (mergeDefaultBitmap) defaultBitmapImageMap.forEach { (k, v) ->
-                    addImage(CharImage(k, v), scale.toDouble() / 8.0)
+                    if (!filterDefaultBitmap || supportedCodepoint == null || supportedCodepoint.contains(k)) {
+                        addImage(CharImage(k, v), scale.toDouble() / 8.0)
+                    }
                 }
                 var filter = { i: Int ->
                     !charWidthMap.containsKey(i)
                 }
-                supportedLanguage?.let { lang ->
-                    val supportedCodepoint = HashSet(defaultLatin)
-                    lang.forEach {
-                        languageCodepointRange[it]?.let { lang ->
-                            supportedCodepoint += lang
-                        }
-                    }
+                supportedCodepoint?.let { supported ->
                     val old = filter
                     filter = {
-                        old(it) && supportedCodepoint.contains(it)
+                        old(it) && supported.contains(it)
                     }
                 }
                 fontProvider.provide(filter) {
@@ -683,7 +707,7 @@ object TextManagerImpl : BetterHudManager, TextManager {
                 debug(ConfigManager.DebugLevel.ASSETS, "Finalizing font text $saveName... (${charWidthMap.size.withDecimal()} of codepoints)")
                 val result = TextElement(internalName, scale, textList, charWidthMap, imageTextScaleMap, yamlObject)
                 synchronized(textCacheMap) {
-                    textCacheMap[TextCache(internalName, images.keys, supportedLanguage)] = result
+                    textCacheMap[TextCache(internalName, images.keys, supportedLanguage, filterDefaultBitmap)] = result
                 }
                 result
             }
