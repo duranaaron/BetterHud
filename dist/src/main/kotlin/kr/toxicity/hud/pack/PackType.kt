@@ -52,10 +52,16 @@ enum class PackType {
                     it.write(bytes)
                 }
             }
-            if (ConfigManagerImpl.clearBuildFolder) pathMap.entries
-                .asSequence()
-                .filter { (key, _) ->  !key.startsWith("assets/${ConfigManagerImpl.namespace}") }
-                .forEach { (_, value) -> value.delete() }
+            // pathMap now only holds files this build did not write. Remove the stale ones in BetterHud's own
+            // namespace (fonts and sheets of removed huds/texts), never another pack's files in a shared folder.
+            // Reverse path order deletes a folder's files before the folder; non-empty folders stay.
+            if (ConfigManagerImpl.clearBuildFolder) {
+                val namespacePrefix = "assets/${ConfigManagerImpl.namespace}/"
+                pathMap.entries
+                    .asSequence()
+                    .filter { (key, _) -> key.replace(File.separatorChar, '/').startsWith(namespacePrefix) }
+                    .forEach { (_, value) -> value.delete() }
+            }
             info("File packed: ${byteMap.values.sumOf { it.size.toLong() }.mbFormat()}")
             return file
         }
@@ -123,7 +129,9 @@ enum class PackType {
                     }
                     UUID.nameUUIDFromBytes(digest.digest()).toString()
                 }.getOrNull()?.let {
-                    val same = target.exists() && exists() && readText() == it
+                    // An emptied build folder still exists, but must be written again.
+                    val built = target.isFile || target.list()?.isNotEmpty() == true
+                    val same = built && exists() && readText() == it
                     if (!same) writeText(it)
                     same
                 }
